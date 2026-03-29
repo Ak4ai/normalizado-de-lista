@@ -1,0 +1,47 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Gerar PDF normalizado",
+			"type": "shell",
+			"command": "C:/Users/Henrique/Documents/GitHub/normalizador de lista/.venv/Scripts/python.exe",
+			"args": [
+				"normalizar_lista.py",
+				"Lista_1_-_Modelagem_Matemtica (1).pdf",
+				"-o",
+				"lista_sem_resolucao_com_espaco.pdf",
+				"--answer-space-lines",
+				"8"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Gerar PDF normalizado 2",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"normalizar_lista.py",
+				"Lista_1_-_Modelagem_Matemtica (1).pdf",
+				"-o",
+				"lista_sem_resolucao_com_espaco.pdf",
+				"--answer-space-lines",
+				"8"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Gerar PDF de saida",
+			"type": "shell",
+			"command": "C:/Users/Henrique/Documents/GitHub/normalizador de lista/.venv/Scripts/python.exe",
+			"args": [
+				"normalizar_lista.py",
+				"Lista_1_-_Modelagem_Matemtica (1).pdf",
+				"-o",
+				"lista_sem_resolucao_com_espaco.pdf",
+				"--answer-space-lines",
+				"10"
+			],
+			"isBackground": false
+		}
+	]
+}

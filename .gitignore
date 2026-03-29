@@ -1,0 +1,9 @@
+# Arquivos gerados (PDFs de saida)
+saida/
+
+# Ambiente virtual
+.venv/
+
+# Cache Python
+__pycache__/
+*.pyc

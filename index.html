@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Normalizador de Listas PDF</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <h1>📄 Normalizador de Listas</h1>
+      <p class="header-sub">Adicione espaços de resolução em listas de exercícios PDF</p>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ── Upload ─────────────────────────────────────── -->
+    <section id="upload-section">
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0"
+           aria-label="Área de upload de PDF">
+        <div class="drop-icon">📁</div>
+        <p>Arraste seu PDF aqui ou
+          <label for="file-input" class="link-btn">escolha um arquivo</label>
+        </p>
+        <input type="file" id="file-input" accept=".pdf" hidden />
+        <p id="file-name" class="file-name hidden"></p>
+      </div>
+    </section>
+
+    <!-- ── App panel (visível após upload) ──────────────── -->
+    <div id="app-panel" class="app-panel hidden">
+
+      <!-- ── Configurações ──────────────────────────────── -->
+      <aside class="card config-panel">
+        <h2>⚙️ Configurações</h2>
+
+        <!-- Padrão de separação -->
+        <fieldset class="config-group">
+          <legend>Padrão de separação</legend>
+          <label class="radio"><input type="radio" name="pattern" value="auto" checked /> Auto-detectar</label>
+          <label class="radio"><input type="radio" name="pattern" value="numbered" /> Numerado (1. 2. 3.)</label>
+          <label class="radio"><input type="radio" name="pattern" value="rstyle" /> Estilo R1 / R2 / Questão</label>
+          <label class="radio"><input type="radio" name="pattern" value="custom" /> Personalizado (regex)</label>
+          <div id="custom-regex-wrap" class="custom-regex-wrap hidden">
+            <input id="custom-regex" type="text" class="text-input mono"
+                   placeholder="Ex: (?m)^\s*\d+\." spellcheck="false" />
+            <span id="regex-msg" class="regex-msg"></span>
+          </div>
+        </fieldset>
+
+        <!-- Conteúdo -->
+        <fieldset class="config-group">
+          <legend>Conteúdo</legend>
+          <label class="checkbox">
+            <input type="checkbox" id="strip-solutions" checked />
+            Remover resoluções presentes no PDF
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="same-page" checked />
+            Manter enunciado e caixa na mesma página
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="show-title" checked />
+            Incluir título no topo do PDF gerado
+          </label>
+          <div id="title-wrap">
+            <input id="pdf-title" type="text" class="text-input" value="Lista de Exercícios" />
+          </div>
+        </fieldset>
+
+        <!-- Estilo da caixa -->
+        <fieldset class="config-group">
+          <legend>Estilo da caixa de resposta</legend>
+          <div class="style-picker">
+            <label class="style-option">
+              <input type="radio" name="box-style" value="grid" checked />
+              <div class="style-thumb thumb-grid"></div>
+              <span>Quadriculada</span>
+            </label>
+            <label class="style-option">
+              <input type="radio" name="box-style" value="lined" />
+              <div class="style-thumb thumb-lined"></div>
+              <span>Pautada</span>
+            </label>
+            <label class="style-option">
+              <input type="radio" name="box-style" value="blank" />
+              <div class="style-thumb thumb-blank"></div>
+              <span>Em branco</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- Tamanho da caixa -->
+        <fieldset class="config-group">
+          <legend>Tamanho da caixa</legend>
+          <label class="radio">
+            <input type="radio" name="box-size" value="auto" checked />
+            Automático (proporcional ao enunciado)
+          </label>
+          <label class="radio">
+            <input type="radio" name="box-size" value="fixed" />
+            Fixo para todos os exercícios
+          </label>
+          <div class="sliders">
+            <div class="slider-row">
+              <span>Linhas de resposta</span>
+              <input type="range" id="answer-lines" min="4" max="40" value="16" step="2" />
+              <strong id="lines-val">16</strong>
+            </div>
+            <div class="slider-row">
+              <span>Célula (px)</span>
+              <input type="range" id="cell-size" min="5" max="20" value="10" step="1" />
+              <strong id="cell-val">10</strong>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Ação -->
+        <div class="action-row">
+          <button id="generate-btn" class="btn-primary" disabled>⬇️ Gerar PDF</button>
+          <span id="gen-status" class="gen-status"></span>
+        </div>
+        <a id="download-link" class="btn-download hidden" download="lista_resolucao.pdf">
+          ✅ Baixar PDF gerado
+        </a>
+      </aside>
+
+      <!-- ── Pré-visualização ───────────────────────────── -->
+      <section class="card preview-panel">
+        <div class="preview-header">
+          <h2>👁️ Pré-visualização</h2>
+          <span id="preview-stats" class="badge"></span>
+        </div>
+        <div id="preview-empty" class="preview-empty">
+          Carregando exercícios…
+        </div>
+        <div id="preview-blocks" class="preview-blocks"></div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+
+  <!-- CDNs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
