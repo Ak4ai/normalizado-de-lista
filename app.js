@@ -23,10 +23,12 @@ const state = {
   file:        null,
   rawText:     '',
   blocks:      [],   // cleaned, ready for PDF
+  blockInfos:  [],   // cleaned blocks with source positions
   blockPages:  [],   // which page each block STARTS on
   blockEndPages: [], // which page each block ENDS on
   pageCount:   0,    // pages read from source PDF
   pageImages:  [],   // extracted real images from PDF
+  pageLines:   [],   // extracted text lines and their Y positions per page
   pageBreaks:  [],   // char positions where each page breaks
 };
 
@@ -41,6 +43,8 @@ async function extractTextFromPDF(file) {
   const pages = [];
 
   console.log(`[normalizar-lista] PDF carregado: ${pdf.numPages} página(s) — ${file.name}`);
+
+  state.pageLines = [];
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page    = await pdf.getPage(p);
@@ -59,6 +63,7 @@ async function extractTextFromPDF(file) {
     const lines    = sortedYs.map(y =>
       bucket.get(y).sort((a, b) => a.x - b.x).map(i => i.str).join('')
     );
+    state.pageLines.push(sortedYs.map((y, idx) => ({ y, text: lines[idx] })));
     const pageText = lines.join('\n');
     console.log(`[normalizar-lista]  página ${p}: ${pageText.length} chars extraídos`);
     pages.push(pageText);
@@ -217,7 +222,7 @@ function splitIntoBlocksWithPageInfo(text, regexStr) {
   try { re = buildRegex(regexStr); } catch { return []; }
 
   const matches = [...text.matchAll(re)];
-  if (!matches.length) return [{ text: text.trim(), pageNum: 0, endPageNum: 0 }].filter(b => b.text);
+  if (!matches.length) return [{ text: text.trim(), pageNum: 0, endPageNum: 0, start: 0, end: text.length }].filter(b => b.text);
 
   return matches.map((match, i) => {
     const start = match.index;
@@ -250,7 +255,7 @@ function splitIntoBlocksWithPageInfo(text, regexStr) {
       endPageNum = state.pageBreaks.length - 1;
     }
     
-    return { text: blockText, pageNum: startPageNum, endPageNum: endPageNum };
+    return { text: blockText, pageNum: startPageNum, endPageNum: endPageNum, start, end };
   }).filter(b => b.text);
 }
 
@@ -286,6 +291,69 @@ function removeResolution(block) {
 
 function processBlocks(blocks, strip) {
   return blocks.map(b => strip ? removeResolution(b) : sanitize(b)).filter(Boolean);
+}
+
+function getPageStartOffset(pageIndex) {
+  return pageIndex <= 0 ? 0 : (state.pageBreaks[pageIndex - 1] || 0);
+}
+
+function getPageEndOffset(pageIndex, totalTextLength) {
+  return state.pageBreaks[pageIndex] || totalTextLength;
+}
+
+function charOffsetToLineIndex(pageIndex, charOffset) {
+  const pageLines = state.pageLines[pageIndex] || [];
+  let running = 0;
+  for (let i = 0; i < pageLines.length; i++) {
+    const lineLength = pageLines[i].text.length;
+    if (charOffset <= running + lineLength) return i;
+    running += lineLength + 1;
+  }
+  return Math.max(0, pageLines.length - 1);
+}
+
+function buildBlockSegments(blockInfos) {
+  const segments = [];
+  const totalTextLength = state.rawText.length;
+
+  for (let blockIndex = 0; blockIndex < blockInfos.length; blockIndex++) {
+    const block = blockInfos[blockIndex];
+    for (let pageNum = block.pageNum; pageNum <= block.endPageNum; pageNum++) {
+      const pageStartOffset = getPageStartOffset(pageNum);
+      const pageEndOffset = getPageEndOffset(pageNum, totalTextLength);
+      const segStart = Math.max(block.start, pageStartOffset);
+      const segEnd = Math.min(block.end, pageEndOffset);
+      const pageLines = state.pageLines[pageNum] || [];
+      if (!pageLines.length) continue;
+
+      const startLineIndex = charOffsetToLineIndex(pageNum, Math.max(0, segStart - pageStartOffset));
+      const endLineIndex = charOffsetToLineIndex(pageNum, Math.max(0, segEnd - pageStartOffset - 1));
+
+      segments.push({
+        blockIndex,
+        pageNum,
+        startY: pageLines[startLineIndex].y,
+        endY: pageLines[endLineIndex].y,
+      });
+    }
+  }
+
+  return segments;
+}
+
+function assignImagesToBlocks(blockInfos, embeddedImages) {
+  const blockSegments = buildBlockSegments(blockInfos);
+  const assignments = blockInfos.map(() => []);
+  const sortedImages = [...embeddedImages].sort((a, b) => a.pageNum - b.pageNum || a.y - b.y);
+
+  for (const img of sortedImages) {
+    const candidates = blockSegments.filter(seg => seg.pageNum === img.pageNum && seg.startY <= img.y + 0.1);
+    if (!candidates.length) continue;
+    const chosen = candidates.reduce((best, seg) => (seg.startY > best.startY ? seg : best));
+    assignments[chosen.blockIndex].push(img);
+  }
+
+  return assignments;
 }
 
 /* =============================================================
@@ -363,12 +431,14 @@ function renderPreview() {
   // Get blocks with page information
   const rawBlocksWithPages = splitIntoBlocksWithPageInfo(state.rawText, opts.regexStr);
   
-  // Process blocks while preserving page information
+  // Process blocks while preserving source positions and page information
   const processedBlocksWithPages = rawBlocksWithPages
     .map(bp => ({
       text: opts.strip ? removeResolution(bp.text) : sanitize(bp.text),
       pageNum: bp.pageNum,
-      endPageNum: bp.endPageNum
+      endPageNum: bp.endPageNum,
+      start: bp.start,
+      end: bp.end,
     }))
     .filter(bp => bp.text); // Remove empty blocks
   
@@ -376,7 +446,8 @@ function renderPreview() {
   const blockPages = processedBlocksWithPages.map(bp => bp.pageNum);
   const blockEndPages = processedBlocksWithPages.map(bp => bp.endPageNum);
   
-  state.blocks    = blocks;
+  state.blocks = blocks;
+  state.blockInfos = processedBlocksWithPages;
   state.blockPages = blockPages;
   state.blockEndPages = blockEndPages;
   
@@ -685,6 +756,7 @@ async function generatePDF(blocks, opts) {
 
   // ── Blocks with intercalated images ────────────────────
   const drawnImages = new Set(); // Track which images have been drawn
+  const imagesByBlock = assignImagesToBlocks(state.blockInfos || [], embeddedImages);
   
   for (let i = 0; i < blocks.length; i++) {
     const raw   = toWinAnsi(`${i + 1}. ${blocks[i]}`);
@@ -726,21 +798,10 @@ async function generatePDF(blocks, opts) {
     drawBox(boxH);
     y += boxH + GAP;
     
-    // ── Draw images for this block without overlapping the next one ────────────
-    const blockStartPage = state.blockPages && state.blockPages[i] !== undefined ? state.blockPages[i] : 0;
-    const blockEndPage = state.blockEndPages && state.blockEndPages[i] !== undefined ? state.blockEndPages[i] : blockStartPage;
-    const nextBlockStartPage = state.blockPages && state.blockPages[i + 1] !== undefined
-      ? state.blockPages[i + 1]
-      : state.pageCount - 1;
-    const claimEndPage = Math.min(blockEndPage, Math.max(blockStartPage, nextBlockStartPage - 1));
+    // ── Draw images assigned to this block by page Y ordering ──────────────────
+    const imagesForThisBlock = (imagesByBlock[i] || []).filter(img => !drawnImages.has(embeddedImages.indexOf(img)));
 
-    const imagesForThisBlock = embeddedImages.filter(img => {
-      const isInClaimedRange = img.pageNum >= blockStartPage && img.pageNum <= claimEndPage;
-      const notYetDrawn = !drawnImages.has(embeddedImages.indexOf(img));
-      return isInClaimedRange && notYetDrawn;
-    });
-
-    console.log(`[normalizar-lista] Bloco ${i + 1}: páginas ${blockStartPage}-${claimEndPage} (fim real ${blockEndPage}, próximo ${nextBlockStartPage}), ${imagesForThisBlock.length} imagem(ns) para desenhar`);
+    console.log(`[normalizar-lista] Bloco ${i + 1}: ${imagesForThisBlock.length} imagem(ns) para desenhar`);
     
     for (const imgData of imagesForThisBlock) {
       try {
