@@ -45,10 +45,15 @@ _SOLUTION_LIST_PATTERNS = re.compile(
 
 
 def find_questions_start(text: str) -> int:
-    """Find where questions start (e.g., at '1)' or '1.') and return the position.
+    """Find where questions start by looking for "1)" or "1." followed by actual content.
     Returns 0 if no clear start is found."""
-    # Look for the pattern "1)" or "1." at the beginning of a line
-    match = re.search(r"(?m)^\s*[1]\s*[\.)]\s+", text)
+    # Look for "1)" or "1." at line start, followed by capitalized word or common question words
+    # This avoids matching "1)" in headers or metadata
+    match = re.search(
+        r"(?m)^\s*1\s*[\.)]\s+(?:[A-Z]|\b(?:O|Um|Uma|Dado|Quando|Qual|Determine|Encontre)\b)",
+        text,
+        re.IGNORECASE
+    )
     if match:
         return match.start()
     return 0
