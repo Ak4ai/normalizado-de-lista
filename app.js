@@ -726,20 +726,23 @@ async function generatePDF(blocks, opts) {
     drawBox(boxH);
     y += boxH + GAP;
     
-    // ── Draw images for this block (including all pages it spans) ───────────────
-    // Find all images from ANY page this block occupies
+    // ── Draw images for this block without overlapping the next one ────────────
     const blockStartPage = state.blockPages && state.blockPages[i] !== undefined ? state.blockPages[i] : 0;
     const blockEndPage = state.blockEndPages && state.blockEndPages[i] !== undefined ? state.blockEndPages[i] : blockStartPage;
-    
-    const imagesForThisPage = embeddedImages.filter(img => {
-      const isInBlockPageRange = img.pageNum >= blockStartPage && img.pageNum <= blockEndPage;
+    const nextBlockStartPage = state.blockPages && state.blockPages[i + 1] !== undefined
+      ? state.blockPages[i + 1]
+      : state.pageCount - 1;
+    const claimEndPage = Math.min(blockEndPage, Math.max(blockStartPage, nextBlockStartPage - 1));
+
+    const imagesForThisBlock = embeddedImages.filter(img => {
+      const isInClaimedRange = img.pageNum >= blockStartPage && img.pageNum <= claimEndPage;
       const notYetDrawn = !drawnImages.has(embeddedImages.indexOf(img));
-      return isInBlockPageRange && notYetDrawn;
+      return isInClaimedRange && notYetDrawn;
     });
+
+    console.log(`[normalizar-lista] Bloco ${i + 1}: páginas ${blockStartPage}-${claimEndPage} (fim real ${blockEndPage}, próximo ${nextBlockStartPage}), ${imagesForThisBlock.length} imagem(ns) para desenhar`);
     
-    console.log(`[normalizar-lista] Bloco ${i + 1}: páginas ${blockStartPage}-${blockEndPage}, ${imagesForThisPage.length} imagem(ns) para desenhar`);
-    
-    for (const imgData of imagesForThisPage) {
+    for (const imgData of imagesForThisBlock) {
       try {
         const maxImgWidth = UW * 0.85;
         const scale = Math.min(1, maxImgWidth / imgData.width);
