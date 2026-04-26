@@ -23,7 +23,8 @@ const state = {
   file:        null,
   rawText:     '',
   blocks:      [],   // cleaned, ready for PDF
-  blockPages:  [],   // which page each block belongs to
+  blockPages:  [],   // which page each block STARTS on
+  blockEndPages: [], // which page each block ENDS on
   pageCount:   0,    // pages read from source PDF
   pageImages:  [],   // extracted real images from PDF
   pageBreaks:  [],   // char positions where each page breaks
@@ -216,23 +217,36 @@ function splitIntoBlocksWithPageInfo(text, regexStr) {
   try { re = buildRegex(regexStr); } catch { return []; }
 
   const matches = [...text.matchAll(re)];
-  if (!matches.length) return [{ text: text.trim(), pageNum: 0 }].filter(b => b.text);
+  if (!matches.length) return [{ text: text.trim(), pageNum: 0, endPageNum: 0 }].filter(b => b.text);
 
   return matches.map((match, i) => {
     const start = match.index;
     const end   = i + 1 < matches.length ? matches[i + 1].index : text.length;
     const blockText = text.slice(start, end).trim();
     
-    // Determine which page this block belongs to
-    let pageNum = 0;
+    // Determine which page this block STARTS on
+    let startPageNum = 0;
     for (let p = 0; p < state.pageBreaks.length; p++) {
       if (start < state.pageBreaks[p]) {
-        pageNum = p;
+        startPageNum = p;
         break;
       }
     }
     
-    return { text: blockText, pageNum };
+    // Determine which page this block ENDS on
+    let endPageNum = 0;
+    for (let p = 0; p < state.pageBreaks.length; p++) {
+      if (end < state.pageBreaks[p]) {
+        endPageNum = p;
+        break;
+      }
+    }
+    // If we didn't find an end page, it's on the last page
+    if (endPageNum === 0 && start >= state.pageBreaks[state.pageBreaks.length - 1]) {
+      endPageNum = state.pageBreaks.length;
+    }
+    
+    return { text: blockText, pageNum: startPageNum, endPageNum: endPageNum };
   }).filter(b => b.text);
 }
 
@@ -349,18 +363,21 @@ function renderPreview() {
   const processedBlocksWithPages = rawBlocksWithPages
     .map(bp => ({
       text: opts.strip ? removeResolution(bp.text) : sanitize(bp.text),
-      pageNum: bp.pageNum
+      pageNum: bp.pageNum,
+      endPageNum: bp.endPageNum
     }))
     .filter(bp => bp.text); // Remove empty blocks
   
   const blocks = processedBlocksWithPages.map(bp => bp.text);
   const blockPages = processedBlocksWithPages.map(bp => bp.pageNum);
+  const blockEndPages = processedBlocksWithPages.map(bp => bp.endPageNum);
   
   state.blocks    = blocks;
   state.blockPages = blockPages;
+  state.blockEndPages = blockEndPages;
   
   console.log(`[normalizar-lista] Blocos e páginas mapeados:`);
-  blockPages.forEach((page, i) => console.log(`  Bloco ${i + 1}: página ${page}`));
+  blockPages.forEach((page, i) => console.log(`  Bloco ${i + 1}: página ${page} até ${blockEndPages[i]}` ));
 
   const pgInfo = state.pageCount ? ` · ${state.pageCount} pág.` : '';
   document.getElementById('preview-stats').textContent =
@@ -705,14 +722,18 @@ async function generatePDF(blocks, opts) {
     drawBox(boxH);
     y += boxH + GAP;
     
-    // ── Draw images for this block's page ───────────────
-    // Find all images from this block's page using correct page tracking
-    const blockPageNum = state.blockPages && state.blockPages[i] !== undefined ? state.blockPages[i] : 0;
+    // ── Draw images for this block (including all pages it spans) ───────────────
+    // Find all images from ANY page this block occupies
+    const blockStartPage = state.blockPages && state.blockPages[i] !== undefined ? state.blockPages[i] : 0;
+    const blockEndPage = state.blockEndPages && state.blockEndPages[i] !== undefined ? state.blockEndPages[i] : blockStartPage;
+    
     const imagesForThisPage = embeddedImages.filter(img => {
-      return img.pageNum === blockPageNum && !drawnImages.has(embeddedImages.indexOf(img));
+      const isInBlockPageRange = img.pageNum >= blockStartPage && img.pageNum <= blockEndPage;
+      const notYetDrawn = !drawnImages.has(embeddedImages.indexOf(img));
+      return isInBlockPageRange && notYetDrawn;
     });
     
-    console.log(`[normalizar-lista] Bloco ${i + 1}: página ${blockPageNum}, ${imagesForThisPage.length} imagem(ns) para desenhar`);
+    console.log(`[normalizar-lista] Bloco ${i + 1}: páginas ${blockStartPage}-${blockEndPage}, ${imagesForThisPage.length} imagem(ns) para desenhar`);
     
     for (const imgData of imagesForThisPage) {
       try {
