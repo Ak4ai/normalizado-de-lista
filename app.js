@@ -373,6 +373,9 @@ async function renderPdfPreview(blocks, opts) {
     empty.textContent = 'Gerando pré-visualização do PDF...';
     empty.classList.remove('hidden');
     
+    console.log(`[normalizar-lista] renderPdfPreview: iniciando com ${blocks.length} bloco(s)`);
+    console.log(`[normalizar-lista] renderPdfPreview: ${state.pageImages ? state.pageImages.length : 0} imagem(ns) no state`);
+    
     // Generate actual PDF
     const pdfBytes = await generatePDF(blocks, opts);
     
@@ -537,12 +540,17 @@ async function generatePDF(blocks, opts) {
 
   // Embed real images if available (from extracted images, not canvas renders)
   const embeddedImages = [];
+  console.log(`[normalizar-lista] generatePDF: ${state.pageImages ? state.pageImages.length : 0} imagem(ns) no state`);
+  
   if (state.pageImages && state.pageImages.length > 0) {
     for (const imgData of state.pageImages) {
       try {
         // Images come as data:image/png;base64,... format
         const base64Data = imgData.data.split(',')[1];
-        if (!base64Data) continue;
+        if (!base64Data) {
+          console.warn(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1}: base64 inválido`);
+          continue;
+        }
         
         // Convert base64 to Uint8Array
         const binaryStr = atob(base64Data);
@@ -560,11 +568,14 @@ async function generatePDF(blocks, opts) {
           height: imgData.height,
           pageNum: imgData.pageNum,
         });
-        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} embedded com sucesso`);
+        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} embedded com sucesso (${imgData.width.toFixed(0)}x${imgData.height.toFixed(0)})`);
       } catch (e) {
-        console.log(`Erro ao embedar imagem de página ${imgData.pageNum + 1}: ${e.message}`);
+        console.error(`[normalizar-lista] Erro ao embedar imagem de página ${imgData.pageNum + 1}: ${e.message}`);
       }
     }
+    console.log(`[normalizar-lista] Total: ${embeddedImages.length} imagem(ns) embedada(s)`);
+  } else {
+    console.log('[normalizar-lista] AVISO: Nenhuma imagem no state.pageImages');
   }
 
   // y tracking (measured from TOP of page; convert to pdf-lib with: PH - y)
