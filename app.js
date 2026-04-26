@@ -232,18 +232,22 @@ function splitIntoBlocksWithPageInfo(text, regexStr) {
         break;
       }
     }
+    // If we didn't find it in the loop, it's beyond all breaks (on last page)
+    if (startPageNum === 0 && start >= state.pageBreaks[state.pageBreaks.length - 1]) {
+      startPageNum = state.pageBreaks.length - 1;
+    }
     
     // Determine which page this block ENDS on
-    let endPageNum = 0;
-    for (let p = 0; p < state.pageBreaks.length; p++) {
-      if (end < state.pageBreaks[p]) {
+    let endPageNum = startPageNum; // Default to same page as start
+    for (let p = startPageNum; p < state.pageBreaks.length; p++) {
+      if (end <= state.pageBreaks[p]) {
         endPageNum = p;
         break;
       }
     }
-    // If we didn't find an end page, it's on the last page
-    if (endPageNum === 0 && start >= state.pageBreaks[state.pageBreaks.length - 1]) {
-      endPageNum = state.pageBreaks.length;
+    // If still not found, it extends beyond all page breaks (last page)
+    if (endPageNum === startPageNum && end > state.pageBreaks[state.pageBreaks.length - 1]) {
+      endPageNum = state.pageBreaks.length - 1;
     }
     
     return { text: blockText, pageNum: startPageNum, endPageNum: endPageNum };
