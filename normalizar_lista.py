@@ -44,6 +44,42 @@ _SOLUTION_LIST_PATTERNS = re.compile(
 )
 
 
+def convert_simple_pattern_to_regex(simple_pattern: str) -> str:
+    r"""Convert simplified manual pattern to regex.
+    
+    Examples:
+        "1) O diagrama..." -> r"(?m)^\s*(?:[1-9]\d{0,2})\)\s*O\s+diagrama"
+        "1) Quando..." -> r"(?m)^\s*(?:[1-9]\d{0,2})\)\s*Quando"
+    
+    Rules:
+        - "1)" becomes regex for any number with parenthesis
+        - Text until "..." is treated as literal (escaped for regex)
+        - "..." means stop matching pattern (content after can vary)
+    """
+    # Remove leading/trailing whitespace
+    pattern = simple_pattern.strip()
+    
+    # Replace "1)" with number regex
+    pattern = re.sub(r"^\s*1\s*\)", "NUMBER)", pattern)
+    
+    # Find where "..." appears (if at all)
+    if "..." in pattern:
+        pattern = pattern.replace("...", "")
+    
+    # Escape special regex characters except our NUMBER placeholder
+    escaped = re.escape(pattern)
+    escaped = escaped.replace(r"NUMBER\)", r"(?:[1-9]\d{0,2})\)")
+    
+    # Build final regex: match at line start, allow leading whitespace
+    # Collapse multiple spaces into single space in pattern
+    escaped = re.sub(r"\\ +", r"\\s+", escaped)
+    
+    final_regex = r"(?m)^\s*" + escaped
+    
+    return final_regex
+
+
+
 def find_questions_start(text: str) -> int:
     """Find where questions start by looking for "1)" or "1." followed by actual content.
     Returns 0 if no clear start is found."""
@@ -370,6 +406,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Quantidade de linhas de resolucao apos cada exercicio (sera duplicada internamente).",
     )
     parser.add_argument(
+        "-p",
+        "--simple-pattern",
+        type=str,
+        default=None,
+        help="Padrão simplificado manual para filtrar questões (ex: '1) O diagrama...' ou '1) Quando...').",
+    )
+    parser.add_argument(
         "--start-regex",
         default=DEFAULT_BLOCK_START_REGEX,
         help="Regex para detectar o inicio de cada exercicio.",
@@ -409,12 +452,21 @@ def main() -> None:
     if questions_start > 0:
         raw_text = raw_text[questions_start:]
 
-    # Auto-detect PDF style unless the user provided a custom regex
-    if args.start_regex == DEFAULT_BLOCK_START_REGEX:
-        detected_regex, should_strip = detect_block_style(raw_text)
-    else:
+    # Determine which regex pattern to use (in priority order)
+    # 1. User provided a simple pattern
+    # 2. User provided a custom regex
+    # 3. Auto-detect from PDF content
+    if args.simple_pattern:
+        detected_regex = convert_simple_pattern_to_regex(args.simple_pattern)
+        should_strip = True
+        pattern_source = f"padrão simplificado: {args.simple_pattern}"
+    elif args.start_regex != DEFAULT_BLOCK_START_REGEX:
         detected_regex = args.start_regex
         should_strip = True
+        pattern_source = "regex customizado"
+    else:
+        detected_regex, should_strip = detect_block_style(raw_text)
+        pattern_source = "detectado automaticamente"
 
     blocks = split_into_exercise_blocks(raw_text, detected_regex)
     cleaned_blocks = clean_exercise_blocks(blocks, strip_solutions=should_strip)
@@ -423,7 +475,7 @@ def main() -> None:
 
     write_blocks_to_pdf(cleaned_blocks, output_pdf, args.answer_space_lines)
     print(f"\nConcluido! Arquivo gerado: {output_pdf.resolve()}")
-    print(f"Estilo detectado   : {'lista de exercicios numerados' if detected_regex == NUMBERED_BLOCK_START_REGEX else 'lista com resolucoes'}")
+    print(f"Padrão usado       : {pattern_source}")
     print(f"Blocos detectados  : {len(blocks)}")
     print(f"Blocos apos limpeza: {len(cleaned_blocks)}")
 
