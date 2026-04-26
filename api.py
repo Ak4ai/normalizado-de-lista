@@ -26,11 +26,24 @@ def extract_images_from_pdf(pdf_path: Path) -> dict:
                     try:
                         xref = img[0]
                         pix = fitz.Pixmap(pdf_doc, xref)
-                        # Convert to PNG if needed
-                        if pix.n - pix.alpha < 4:
-                            pix = fitz.Pixmap(fitz.csRGB, pix)
+                        
+                        # Ensure we have RGB color space (no alpha channel issues)
+                        if pix.n - pix.alpha < 4:  # GRAY or RGB without alpha
+                            pix_rgb = fitz.Pixmap(fitz.csRGB, pix)
+                            pix = pix_rgb
+                        elif pix.alpha > 0:  # Has alpha channel, convert to RGB
+                            pix_rgb = fitz.Pixmap(fitz.csRGB, pix)
+                            pix = pix_rgb
+                        
+                        # Ensure clean RGB output
+                        if pix.n != 3:  # Ensure exactly 3 channels (RGB)
+                            pix_clean = fitz.Pixmap(fitz.csRGB, pix)
+                            pix = pix_clean
+                        
+                        # Convert to PNG bytes
                         img_bytes = pix.tobytes("png")
                         pix = None
+                        
                         # Get image rect on page
                         rect_list = page.get_image_rects(img)
                         if rect_list:
@@ -45,7 +58,7 @@ def extract_images_from_pdf(pdf_path: Path) -> dict:
                                 'height': rect.height,
                             })
                     except Exception as e:
-                        print(f"Error extracting image: {e}")
+                        print(f"Error extracting image from page {page_num}: {e}")
                 if page_images:
                     images_by_page[page_num] = page_images
     return images_by_page

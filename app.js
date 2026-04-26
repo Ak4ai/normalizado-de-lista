@@ -24,7 +24,8 @@ const state = {
   rawText:     '',
   blocks:      [],   // cleaned, ready for PDF
   pageCount:   0,    // pages read from source PDF
-  pageImages:  [],   // rendered page images with metadata
+  pageImages:  [],   // extracted real images from PDF
+  pageBreaks:  [],   // char positions where each page breaks
 };
 
 /* =============================================================
@@ -65,6 +66,16 @@ async function extractTextFromPDF(file) {
     .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+  
+  // Track where each page breaks in the concatenated text
+  const pageBreaks = [];
+  let charPos = 0;
+  for (let i = 0; i < pages.length; i++) {
+    charPos += pages[i].length + 1; // +1 for the \n
+    pageBreaks.push(charPos);
+  }
+  state.pageBreaks = pageBreaks;
+  
   console.log(`[normalizar-lista] Total extraído: ${text.length} chars`);
   state.pageCount = pdf.numPages;
   
@@ -197,6 +208,31 @@ function splitIntoBlocks(text, regexStr) {
     const end   = i + 1 < matches.length ? matches[i + 1].index : text.length;
     return text.slice(start, end).trim();
   }).filter(Boolean);
+}
+
+function splitIntoBlocksWithPageInfo(text, regexStr) {
+  let re;
+  try { re = buildRegex(regexStr); } catch { return []; }
+
+  const matches = [...text.matchAll(re)];
+  if (!matches.length) return [{ text: text.trim(), pageNum: 0 }].filter(b => b.text);
+
+  return matches.map((match, i) => {
+    const start = match.index;
+    const end   = i + 1 < matches.length ? matches[i + 1].index : text.length;
+    const blockText = text.slice(start, end).trim();
+    
+    // Determine which page this block belongs to
+    let pageNum = 0;
+    for (let p = 0; p < state.pageBreaks.length; p++) {
+      if (start < state.pageBreaks[p]) {
+        pageNum = p;
+        break;
+      }
+    }
+    
+    return { text: blockText, pageNum };
+  }).filter(b => b.text);
 }
 
 function sanitize(text) {
@@ -600,7 +636,7 @@ async function generatePDF(blocks, opts) {
 
   // ── Add original page images if available ───────────────
   if (embeddedImages.length > 0) {
-    // Draw all extracted images from the original PDF
+    // Draw all extracted images from the original PDF after all text/questions
     for (const imgData of embeddedImages) {
       try {
         // Scale image to fit in usable width
@@ -622,7 +658,7 @@ async function generatePDF(blocks, opts) {
           height: imgHeight,
         });
         
-        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} desenhada no PDF (${imgWidth.toFixed(0)}x${imgHeight.toFixed(0)}px)`);
+        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} desenhada no PDF`);
         y += imgHeight + GAP;
       } catch (e) {
         console.log(`Erro ao desenhar imagem: ${e.message}`);
@@ -638,6 +674,7 @@ async function generatePDF(blocks, opts) {
     const textH = lines.length * TEXT_LH;
     const totalH = textH + GAP + LBL_H + boxH;
 
+    // Draw text
     if (opts.samePage && totalH <= PH - 2 * MARGIN) {
       // Keep everything on one page: check space first
       if (y + totalH > PH - MARGIN) newPage();
