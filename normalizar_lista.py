@@ -44,6 +44,16 @@ _SOLUTION_LIST_PATTERNS = re.compile(
 )
 
 
+def find_questions_start(text: str) -> int:
+    """Find where questions start (e.g., at '1)' or '1.') and return the position.
+    Returns 0 if no clear start is found."""
+    # Look for the pattern "1)" or "1." at the beginning of a line
+    match = re.search(r"(?m)^\s*[1]\s*[\.)]\s+", text)
+    if match:
+        return match.start()
+    return 0
+
+
 def detect_block_style(text: str):
     """Return (start_regex, should_strip_solutions) based on PDF content."""
     solution_hits = len(_SOLUTION_LIST_PATTERNS.findall(text))
@@ -388,6 +398,11 @@ def main() -> None:
     raw_text = extract_text_from_pdf(input_pdf)
     if not raw_text:
         parser.error("Nao foi possivel extrair texto do PDF informado.")
+
+    # Remove header/structure before questions start (e.g., keep only from "1)" onwards)
+    questions_start = find_questions_start(raw_text)
+    if questions_start > 0:
+        raw_text = raw_text[questions_start:]
 
     # Auto-detect PDF style unless the user provided a custom regex
     if args.start_regex == DEFAULT_BLOCK_START_REGEX:
