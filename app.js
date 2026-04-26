@@ -634,38 +634,6 @@ async function generatePDF(blocks, opts) {
     y += TITLE_SZ + 14;
   }
 
-  // ── Add original page images if available ───────────────
-  if (embeddedImages.length > 0) {
-    // Draw all extracted images from the original PDF after all text/questions
-    for (const imgData of embeddedImages) {
-      try {
-        // Scale image to fit in usable width
-        const maxImgWidth = UW * 0.85;
-        const scale = Math.min(1, maxImgWidth / imgData.width);
-        const imgWidth = imgData.width * scale;
-        const imgHeight = imgData.height * scale;
-        
-        // Check if image fits on current page, otherwise create new page
-        if (y + imgHeight + GAP > PH - MARGIN) {
-          newPage();
-        }
-        
-        // Draw image from original PDF position
-        page.drawImage(imgData.image, {
-          x: MARGIN,
-          y: PH - y - imgHeight,
-          width: imgWidth,
-          height: imgHeight,
-        });
-        
-        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} desenhada no PDF`);
-        y += imgHeight + GAP;
-      } catch (e) {
-        console.log(`Erro ao desenhar imagem: ${e.message}`);
-      }
-    }
-  }
-
   // ── Blocks ─────────────────────────────────────────────
   for (let i = 0; i < blocks.length; i++) {
     const raw   = toWinAnsi(`${i + 1}. ${blocks[i]}`);
@@ -706,6 +674,38 @@ async function generatePDF(blocks, opts) {
     // Box
     drawBox(boxH);
     y += boxH + GAP;
+  }
+
+  // ── Add original page images AFTER all blocks ───────────
+  if (embeddedImages.length > 0) {
+    // Draw all extracted images from the original PDF
+    for (const imgData of embeddedImages) {
+      try {
+        // Scale image to fit in usable width
+        const maxImgWidth = UW * 0.85;
+        const scale = Math.min(1, maxImgWidth / imgData.width);
+        const imgWidth = imgData.width * scale;
+        const imgHeight = imgData.height * scale;
+        
+        // Check if image fits on current page, otherwise create new page
+        if (y + imgHeight + GAP > PH - MARGIN) {
+          newPage();
+        }
+        
+        // Draw image from original PDF position
+        page.drawImage(imgData.image, {
+          x: MARGIN,
+          y: PH - y - imgHeight,
+          width: imgWidth,
+          height: imgHeight,
+        });
+        
+        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} desenhada no PDF`);
+        y += imgHeight + GAP;
+      } catch (e) {
+        console.log(`Erro ao desenhar imagem: ${e.message}`);
+      }
+    }
   }
 
   return await doc.save();
