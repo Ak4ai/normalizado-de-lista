@@ -21,8 +21,8 @@ DEFAULT_BLOCK_START_REGEX = (
     r")\b[^\n]*"
 )
 
-# Matches: 1. Dado ..., 2. Construa ...  (numbered exercise-list PDFs)
-NUMBERED_BLOCK_START_REGEX = r"(?m)^\s*(?:[1-9]\d{0,2})\.[ \t]+\S"
+# Matches: 1. Dado ... or 1) Dado ...  (numbered exercise-list PDFs)
+NUMBERED_BLOCK_START_REGEX = r"(?m)^\s*(?:[1-9]\d{0,2})[\.)]\s+\S"
 
 PDF_HEADER_PATTERN = re.compile(
     r"(?im)^\s*(?:"
