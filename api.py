@@ -2,12 +2,14 @@
 """Flask API to extract real images from PDFs."""
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from pathlib import Path
 import base64
 import tempfile
 import fitz  # PyMuPDF
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 def extract_images_from_pdf(pdf_path: Path) -> dict:
     """Extract all images from PDF pages with their metadata.
