@@ -99,6 +99,52 @@ function buildRegex(str) {
   return new RegExp(source, flags);
 }
 
+/**
+ * Convert simplified manual pattern to regex.
+ * Examples:
+ *   "1) O diagrama..." -> "(?m)^\\s*(?:[1-9]\\d{0,2})\\)\\s*O\\s+diagrama"
+ *   "1) Quando..." -> "(?m)^\\s*(?:[1-9]\\d{0,2})\\)\\s*Quando"
+ */
+function convertSimplePatternToRegex(simplePattern) {
+  let pattern = simplePattern.trim();
+  
+  // Replace "1)" with number regex placeholder
+  pattern = pattern.replace(/^\s*1\s*\)/, 'NUMBER)');
+  
+  // Remove "..." if present
+  if (pattern.includes('...')) {
+    pattern = pattern.replace(/\.\.\./, '');
+  }
+  
+  // Escape special regex characters except our NUMBER placeholder
+  let escaped = pattern
+    .replace(/\\/g, '\\\\')
+    .replace(/\./g, '\\.')
+    .replace(/\*/g, '\\*')
+    .replace(/\+/g, '\\+')
+    .replace(/\?/g, '\\?')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/\|/g, '\\|')
+    .replace(/\^/g, '\\^')
+    .replace(/\$/g, '\\$');
+  
+  // Replace NUMBER placeholder with actual number regex
+  escaped = escaped.replace('NUMBER\\)', '(?:[1-9]\\d{0,2})\\)');
+  
+  // Collapse multiple spaces into \s+
+  escaped = escaped.replace(/\\ +/g, '\\s+');
+  
+  // Build final regex
+  const finalRegex = '(?m)^\\s*' + escaped;
+  
+  return finalRegex;
+}
+
 function splitIntoBlocks(text, regexStr) {
   let re;
   try { re = buildRegex(regexStr); } catch { return []; }
@@ -155,6 +201,7 @@ function getOptions() {
   const boxStyle    = document.querySelector('input[name="box-style"]:checked').value;
   const boxSizeMode = document.querySelector('input[name="box-size"]:checked').value;
   const customRegex = document.getElementById('custom-regex').value.trim();
+  const simplePattern = document.getElementById('simple-pattern').value.trim();
   const answerLines = +document.getElementById('answer-lines').value;
   const cellSize    = +document.getElementById('cell-size').value;
   const strip       = document.getElementById('strip-solutions').checked;
@@ -166,13 +213,15 @@ function getOptions() {
   if (patternSel === 'auto') {
     const d = detectBlockStyle(state.rawText);
     regexStr = PATTERNS[d.patternKey];
+  } else if (patternSel === 'simple') {
+    regexStr = convertSimplePatternToRegex(simplePattern);
   } else if (patternSel === 'custom') {
     regexStr = customRegex;
   } else {
     regexStr = PATTERNS[patternSel];
   }
 
-  return { patternSel, boxStyle, boxSizeMode, customRegex, answerLines,
+  return { patternSel, boxStyle, boxSizeMode, customRegex, simplePattern, answerLines,
            cellSize, strip, samePage, showTitle, title, regexStr };
 }
 
@@ -194,6 +243,23 @@ function renderPreview() {
     } catch (e) {
       msg.textContent = `✗ ${e.message}`;
       msg.className   = 'regex-msg err';
+      clearPreview(0);
+      return;
+    }
+  }
+
+  // Validate simple pattern live
+  if (opts.patternSel === 'simple') {
+    const msg = document.getElementById('simple-msg');
+    if (!opts.simplePattern) { msg.textContent = ''; return; }
+    try {
+      const regex = convertSimplePatternToRegex(opts.simplePattern);
+      buildRegex(regex);
+      msg.textContent = '✓ Padrão válido';
+      msg.className   = 'simple-msg ok';
+    } catch (e) {
+      msg.textContent = `✗ ${e.message}`;
+      msg.className   = 'simple-msg err';
       clearPreview(0);
       return;
     }
@@ -508,7 +574,9 @@ const debouncedPreview = debounce(renderPreview, 350);
 document.querySelectorAll('input[name="pattern"]').forEach(r =>
   r.addEventListener('change', () => {
     const isCustom = r.value === 'custom' && r.checked;
+    const isSimple = r.value === 'simple' && r.checked;
     document.getElementById('custom-regex-wrap').classList.toggle('hidden', !isCustom);
+    document.getElementById('simple-pattern-wrap').classList.toggle('hidden', !isSimple);
     renderPreview();
   })
 );
@@ -517,6 +585,9 @@ document.querySelectorAll('input[name="box-style"], input[name="box-size"]')
   .forEach(r => r.addEventListener('change', renderPreview));
 
 document.getElementById('custom-regex')
+  .addEventListener('input', debouncedPreview);
+
+document.getElementById('simple-pattern')
   .addEventListener('input', debouncedPreview);
 
 ['strip-solutions', 'same-page', 'show-title'].forEach(id =>

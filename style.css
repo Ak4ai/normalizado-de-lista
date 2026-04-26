@@ -150,6 +150,11 @@ main {
 .regex-msg.ok  { color: var(--green); }
 .regex-msg.err { color: #dc2626; }
 
+.simple-pattern-wrap { margin-top: 8px; }
+.simple-msg { display: block; font-size: .75rem; margin-top: 4px; min-height: 16px; }
+.simple-msg.ok  { color: var(--green); }
+.simple-msg.err { color: #dc2626; }
+
 #title-wrap { margin-top: 8px; }
 #pdf-title  { font-family: inherit; }
 

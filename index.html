@@ -43,6 +43,12 @@
           <label class="radio"><input type="radio" name="pattern" value="auto" checked /> Auto-detectar</label>
           <label class="radio"><input type="radio" name="pattern" value="numbered" /> Numerado (1. 2. 3.)</label>
           <label class="radio"><input type="radio" name="pattern" value="rstyle" /> Estilo R1 / R2 / Questão</label>
+          <label class="radio"><input type="radio" name="pattern" value="simple" /> Padrão simplificado (ex: "1) O diagrama...")</label>
+          <div id="simple-pattern-wrap" class="simple-pattern-wrap hidden">
+            <input id="simple-pattern" type="text" class="text-input"
+                   placeholder="Ex: 1) O diagrama... ou 1) Quando..." spellcheck="false" />
+            <span id="simple-msg" class="simple-msg"></span>
+          </div>
           <label class="radio"><input type="radio" name="pattern" value="custom" /> Personalizado (regex)</label>
           <div id="custom-regex-wrap" class="custom-regex-wrap hidden">
             <input id="custom-regex" type="text" class="text-input mono"
