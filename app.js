@@ -20,10 +20,11 @@ const HEADER_RE        = /^[ \t]*(?:centro federal.*|campus .*|pesquisa operacio
    STATE
    ============================================================= */
 const state = {
-  file:      null,
-  rawText:   '',
-  blocks:    [],   // cleaned, ready for PDF
-  pageCount: 0,    // pages read from source PDF
+  file:        null,
+  rawText:     '',
+  blocks:      [],   // cleaned, ready for PDF
+  pageCount:   0,    // pages read from source PDF
+  pageImages:  [],   // rendered page images with metadata
 };
 
 /* =============================================================
@@ -35,12 +36,39 @@ async function extractTextFromPDF(file) {
   const data = new Uint8Array(ab);
   const pdf  = await pdfjsLib.getDocument({ data, disableRange: true, disableStream: true }).promise;
   const pages = [];
+  const images = []; // Store images: { pageNum, canvas, rect }
 
   console.log(`[normalizar-lista] PDF carregado: ${pdf.numPages} página(s) — ${file.name}`);
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page    = await pdf.getPage(p);
     const content = await page.getTextContent({ includeMarkedContent: false });
+
+    // Extract images by rendering the page to canvas
+    try {
+      const scale = 2;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      
+      await page.render({
+        canvasContext: ctx,
+        viewport: viewport,
+      }).promise;
+      
+      // Store canvas image for this page
+      images.push({
+        pageNum: p - 1,
+        canvas: canvas,
+        scale: scale,
+        width: viewport.width,
+        height: viewport.height,
+      });
+    } catch (e) {
+      console.log(`[normalizar-lista] Erro ao renderizar página ${p} para imagem: ${e.message}`);
+    }
 
     // Group items by rounded Y coordinate → reconstruct lines
     const bucket = new Map();
@@ -66,6 +94,7 @@ async function extractTextFromPDF(file) {
     .trim();
   console.log(`[normalizar-lista] Total extraído: ${text.length} chars`);
   state.pageCount = pdf.numPages;
+  state.pageImages = images; // Store images in state
   return text;
 }
 
@@ -400,6 +429,26 @@ async function generatePDF(blocks, opts) {
   const TEXT_LH = 16, LBL_H = 16, GAP = 14;
   const CELL = opts.cellSize;
 
+  // Embed page images if available
+  const embeddedImages = [];
+  if (state.pageImages && state.pageImages.length > 0) {
+    for (const imgData of state.pageImages) {
+      try {
+        const dataUrl = imgData.canvas.toDataURL('image/png');
+        const imgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
+        const embedded = await doc.embedPng(imgBytes);
+        embeddedImages.push({
+          image: embedded,
+          width: imgData.width,
+          height: imgData.height,
+          pageNum: imgData.pageNum,
+        });
+      } catch (e) {
+        console.log(`Erro ao embedar imagem de página ${imgData.pageNum + 1}: ${e.message}`);
+      }
+    }
+  }
+
   // y tracking (measured from TOP of page; convert to pdf-lib with: PH - y)
   let page = doc.addPage([PW, PH]);
   let y    = MARGIN;
@@ -465,6 +514,29 @@ async function generatePDF(blocks, opts) {
       maxWidth: UW,
     });
     y += TITLE_SZ + 14;
+  }
+
+  // ── Add original page images if available ───────────────
+  if (embeddedImages.length > 0) {
+    // Add first page image with reduced size
+    const firstImg = embeddedImages[0];
+    const imgScale = 0.6;
+    const imgWidth = (UW) * imgScale;
+    const imgHeight = (firstImg.height / firstImg.width) * imgWidth;
+    
+    if (y + imgHeight + GAP > PH - MARGIN) newPage();
+    
+    try {
+      page.drawImage(firstImg.image, {
+        x: MARGIN,
+        y: PH - y - imgHeight,
+        width: imgWidth,
+        height: imgHeight,
+      });
+      y += imgHeight + GAP;
+    } catch (e) {
+      console.log(`Erro ao desenhar imagem no PDF: ${e.message}`);
+    }
   }
 
   // ── Blocks ─────────────────────────────────────────────
