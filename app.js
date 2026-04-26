@@ -397,6 +397,21 @@ function toWinAnsi(str) {
     .replace(/[^\x09\x0A\x20-\xFF]/g, '');
 }
 
+/**
+ * Convert canvas to PNG bytes (Uint8Array)
+ * Extracts PNG data from data URL
+ */
+function canvasToPngBytes(canvas) {
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  const binaryStr = atob(base64);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return bytes;
+}
+
 function wrapText(font, text, fontSize, maxWidth) {
   const lines = [];
   for (const para of text.split('\n')) {
@@ -434,8 +449,7 @@ async function generatePDF(blocks, opts) {
   if (state.pageImages && state.pageImages.length > 0) {
     for (const imgData of state.pageImages) {
       try {
-        const dataUrl = imgData.canvas.toDataURL('image/png');
-        const imgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
+        const imgBytes = canvasToPngBytes(imgData.canvas);
         const embedded = await doc.embedPng(imgBytes);
         embeddedImages.push({
           image: embedded,
