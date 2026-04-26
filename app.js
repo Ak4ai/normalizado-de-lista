@@ -313,29 +313,73 @@ function renderPreview() {
     return;
   }
   empty.classList.add('hidden');
+  
+  // Generate PDF and render preview
+  renderPdfPreview(blocks, opts);
+}
 
-  const show = Math.min(blocks.length, 4);
-  for (let i = 0; i < show; i++) {
-    const b     = blocks[i];
-    const boxH  = computeBoxHeight(b, opts);
-    const csVar = `--cs:${opts.cellSize}px`;
-    const cls   = { grid: 'ans-grid', lined: 'ans-lined', blank: 'ans-blank' }[opts.boxStyle];
-    const el    = document.createElement('div');
-    el.className = 'preview-block';
-    el.innerHTML = `
-      <div class="preview-block-head">Exercício ${i + 1}</div>
-      <div class="preview-block-text">${escHtml(b.length > 280 ? b.slice(0, 280) + '…' : b)}</div>
-      <div class="preview-box-label">Espaço para resolução</div>
-      <div class="answer-box ${cls}" style="${csVar}; height:${Math.min(boxH, 200)}px"></div>
-    `;
-    container.appendChild(el);
-  }
-
-  if (blocks.length > show) {
-    const more = document.createElement('div');
-    more.className = 'preview-more';
-    more.textContent = `… e mais ${blocks.length - show} exercício(s) não exibidos`;
-    container.appendChild(more);
+async function renderPdfPreview(blocks, opts) {
+  const container = document.getElementById('preview-blocks');
+  const empty = document.getElementById('preview-empty');
+  
+  try {
+    empty.textContent = 'Gerando pré-visualização do PDF...';
+    empty.classList.remove('hidden');
+    
+    // Generate actual PDF
+    const pdfBytes = await generatePDF(blocks, opts);
+    
+    // Render first 2 pages as preview
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const pdf = await pdfjsLib.getDocument(url).promise;
+    
+    container.innerHTML = '';
+    empty.classList.add('hidden');
+    
+    const pagesToShow = Math.min(2, pdf.numPages);
+    for (let pageNum = 1; pageNum <= pagesToShow; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const scale = 1;
+      const viewport = page.getViewport({ scale });
+      
+      // Create canvas for page
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.maxWidth = '100%';
+      canvas.style.marginBottom = '16px';
+      canvas.style.border = '1px solid #e2e8f0';
+      canvas.style.borderRadius = '8px';
+      
+      const ctx = canvas.getContext('2d');
+      await page.render({
+        canvasContext: ctx,
+        viewport: viewport,
+      }).promise;
+      
+      const pageLabel = document.createElement('div');
+      pageLabel.style.fontSize = '0.85rem';
+      pageLabel.style.color = '#64748b';
+      pageLabel.style.marginBottom = '8px';
+      pageLabel.textContent = `Página ${pageNum}`;
+      
+      container.appendChild(pageLabel);
+      container.appendChild(canvas);
+    }
+    
+    if (pdf.numPages > 2) {
+      const more = document.createElement('div');
+      more.className = 'preview-more';
+      more.textContent = `… e mais ${pdf.numPages - 2} página(s) não exibida(s)`;
+      container.appendChild(more);
+    }
+    
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Erro ao gerar pré-visualização:', err);
+    empty.textContent = `Erro: ${err.message}`;
+    empty.classList.remove('hidden');
   }
 }
 
