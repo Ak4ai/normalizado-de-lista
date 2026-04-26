@@ -645,7 +645,9 @@ async function generatePDF(blocks, opts) {
     y += TITLE_SZ + 14;
   }
 
-  // ── Blocks ─────────────────────────────────────────────
+  // ── Blocks with intercalated images ────────────────────
+  const drawnImages = new Set(); // Track which images have been drawn
+  
   for (let i = 0; i < blocks.length; i++) {
     const raw   = toWinAnsi(`${i + 1}. ${blocks[i]}`);
     const lines = wrapText(font, raw, TEXT_SZ, UW);
@@ -685,25 +687,26 @@ async function generatePDF(blocks, opts) {
     // Box
     drawBox(boxH);
     y += boxH + GAP;
-  }
-
-  // ── Add original page images AFTER all blocks ───────────
-  if (embeddedImages.length > 0) {
-    // Draw all extracted images from the original PDF
-    for (const imgData of embeddedImages) {
+    
+    // ── Draw images for this block's page ───────────────
+    // Find all images from this block's page
+    const imagesForThisPage = embeddedImages.filter(img => {
+      // Calculate which page this block belongs to
+      const blockPageNum = i === 0 ? 0 : Math.floor((i / blocks.length) * state.pageCount);
+      return img.pageNum === blockPageNum && !drawnImages.has(embeddedImages.indexOf(img));
+    });
+    
+    for (const imgData of imagesForThisPage) {
       try {
-        // Scale image to fit in usable width
         const maxImgWidth = UW * 0.85;
         const scale = Math.min(1, maxImgWidth / imgData.width);
         const imgWidth = imgData.width * scale;
         const imgHeight = imgData.height * scale;
         
-        // Check if image fits on current page, otherwise create new page
         if (y + imgHeight + GAP > PH - MARGIN) {
           newPage();
         }
         
-        // Draw image from original PDF position
         page.drawImage(imgData.image, {
           x: MARGIN,
           y: PH - y - imgHeight,
@@ -711,10 +714,40 @@ async function generatePDF(blocks, opts) {
           height: imgHeight,
         });
         
-        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} desenhada no PDF`);
         y += imgHeight + GAP;
+        drawnImages.add(embeddedImages.indexOf(imgData));
+        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} desenhada após bloco ${i + 1}`);
       } catch (e) {
         console.log(`Erro ao desenhar imagem: ${e.message}`);
+      }
+    }
+  }
+  
+  // ── Draw remaining images (if any) ──────────────────────
+  for (let idx = 0; idx < embeddedImages.length; idx++) {
+    if (!drawnImages.has(idx)) {
+      const imgData = embeddedImages[idx];
+      try {
+        const maxImgWidth = UW * 0.85;
+        const scale = Math.min(1, maxImgWidth / imgData.width);
+        const imgWidth = imgData.width * scale;
+        const imgHeight = imgData.height * scale;
+        
+        if (y + imgHeight + GAP > PH - MARGIN) {
+          newPage();
+        }
+        
+        page.drawImage(imgData.image, {
+          x: MARGIN,
+          y: PH - y - imgHeight,
+          width: imgWidth,
+          height: imgHeight,
+        });
+        
+        y += imgHeight + GAP;
+        drawnImages.add(idx);
+      } catch (e) {
+        console.log(`Erro ao desenhar imagem restante: ${e.message}`);
       }
     }
   }
