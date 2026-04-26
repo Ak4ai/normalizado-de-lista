@@ -36,39 +36,12 @@ async function extractTextFromPDF(file) {
   const data = new Uint8Array(ab);
   const pdf  = await pdfjsLib.getDocument({ data, disableRange: true, disableStream: true }).promise;
   const pages = [];
-  const images = []; // Store images: { pageNum, canvas, rect }
 
   console.log(`[normalizar-lista] PDF carregado: ${pdf.numPages} página(s) — ${file.name}`);
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page    = await pdf.getPage(p);
     const content = await page.getTextContent({ includeMarkedContent: false });
-
-    // Extract images by rendering the page to canvas
-    try {
-      const scale = 2;
-      const viewport = page.getViewport({ scale });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext('2d');
-      
-      await page.render({
-        canvasContext: ctx,
-        viewport: viewport,
-      }).promise;
-      
-      // Store canvas image for this page
-      images.push({
-        pageNum: p - 1,
-        canvas: canvas,
-        scale: scale,
-        width: viewport.width,
-        height: viewport.height,
-      });
-    } catch (e) {
-      console.log(`[normalizar-lista] Erro ao renderizar página ${p} para imagem: ${e.message}`);
-    }
 
     // Group items by rounded Y coordinate → reconstruct lines
     const bucket = new Map();
@@ -94,7 +67,45 @@ async function extractTextFromPDF(file) {
     .trim();
   console.log(`[normalizar-lista] Total extraído: ${text.length} chars`);
   state.pageCount = pdf.numPages;
-  state.pageImages = images; // Store images in state
+  
+  // Extract real images from PDF using Python API
+  try {
+    const formData = new FormData();
+    formData.append('pdf', file);
+    const response = await fetch('http://127.0.0.1:5000/api/extract-images', {
+      method: 'POST',
+      body: formData,
+    });
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success && result.images) {
+        // Convert images object to array format
+        const imagesArray = [];
+        for (const [pageNumStr, pageImages] of Object.entries(result.images)) {
+          const pageNum = parseInt(pageNumStr);
+          for (const img of pageImages) {
+            imagesArray.push({
+              pageNum: pageNum,
+              data: img.data,
+              x: img.x,
+              y: img.y,
+              width: img.width,
+              height: img.height,
+            });
+          }
+        }
+        state.pageImages = imagesArray;
+        console.log(`[normalizar-lista] ${imagesArray.length} imagem(ns) real(is) extraída(s)`);
+      }
+    } else {
+      console.log('[normalizar-lista] Aviso: não foi possível extrair imagens reais');
+      state.pageImages = [];
+    }
+  } catch (e) {
+    console.log(`[normalizar-lista] Aviso ao extrair imagens: ${e.message}`);
+    state.pageImages = [];
+  }
+  
   return text;
 }
 
@@ -488,19 +499,32 @@ async function generatePDF(blocks, opts) {
   const TEXT_LH = 16, LBL_H = 16, GAP = 14;
   const CELL = opts.cellSize;
 
-  // Embed page images if available
+  // Embed real images if available (from extracted images, not canvas renders)
   const embeddedImages = [];
   if (state.pageImages && state.pageImages.length > 0) {
     for (const imgData of state.pageImages) {
       try {
-        const imgBytes = canvasToPngBytes(imgData.canvas);
+        // Images come as data:image/png;base64,... format
+        const base64Data = imgData.data.split(',')[1];
+        if (!base64Data) continue;
+        
+        // Convert base64 to Uint8Array
+        const binaryStr = atob(base64Data);
+        const imgBytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          imgBytes[i] = binaryStr.charCodeAt(i);
+        }
+        
         const embedded = await doc.embedPng(imgBytes);
         embeddedImages.push({
           image: embedded,
+          x: imgData.x,
+          y: imgData.y,
           width: imgData.width,
           height: imgData.height,
           pageNum: imgData.pageNum,
         });
+        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} embedded com sucesso`);
       } catch (e) {
         console.log(`Erro ao embedar imagem de página ${imgData.pageNum + 1}: ${e.message}`);
       }
