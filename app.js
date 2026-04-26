@@ -23,6 +23,7 @@ const state = {
   file:        null,
   rawText:     '',
   blocks:      [],   // cleaned, ready for PDF
+  blockPages:  [],   // which page each block belongs to
   pageCount:   0,    // pages read from source PDF
   pageImages:  [],   // extracted real images from PDF
   pageBreaks:  [],   // char positions where each page breaks
@@ -341,9 +342,25 @@ function renderPreview() {
     }
   }
 
-  const rawBlocks = splitIntoBlocks(state.rawText, opts.regexStr);
-  const blocks    = processBlocks(rawBlocks, opts.strip);
+  // Get blocks with page information
+  const rawBlocksWithPages = splitIntoBlocksWithPageInfo(state.rawText, opts.regexStr);
+  
+  // Process blocks while preserving page information
+  const processedBlocksWithPages = rawBlocksWithPages
+    .map(bp => ({
+      text: opts.strip ? removeResolution(bp.text) : sanitize(bp.text),
+      pageNum: bp.pageNum
+    }))
+    .filter(bp => bp.text); // Remove empty blocks
+  
+  const blocks = processedBlocksWithPages.map(bp => bp.text);
+  const blockPages = processedBlocksWithPages.map(bp => bp.pageNum);
+  
   state.blocks    = blocks;
+  state.blockPages = blockPages;
+  
+  console.log(`[normalizar-lista] Blocos e páginas mapeados:`);
+  blockPages.forEach((page, i) => console.log(`  Bloco ${i + 1}: página ${page}`));
 
   const pgInfo = state.pageCount ? ` · ${state.pageCount} pág.` : '';
   document.getElementById('preview-stats').textContent =
@@ -689,12 +706,13 @@ async function generatePDF(blocks, opts) {
     y += boxH + GAP;
     
     // ── Draw images for this block's page ───────────────
-    // Find all images from this block's page
+    // Find all images from this block's page using correct page tracking
+    const blockPageNum = state.blockPages && state.blockPages[i] !== undefined ? state.blockPages[i] : 0;
     const imagesForThisPage = embeddedImages.filter(img => {
-      // Calculate which page this block belongs to
-      const blockPageNum = i === 0 ? 0 : Math.floor((i / blocks.length) * state.pageCount);
       return img.pageNum === blockPageNum && !drawnImages.has(embeddedImages.indexOf(img));
     });
+    
+    console.log(`[normalizar-lista] Bloco ${i + 1}: página ${blockPageNum}, ${imagesForThisPage.length} imagem(ns) para desenhar`);
     
     for (const imgData of imagesForThisPage) {
       try {
