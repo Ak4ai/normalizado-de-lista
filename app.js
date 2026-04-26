@@ -600,24 +600,33 @@ async function generatePDF(blocks, opts) {
 
   // ── Add original page images if available ───────────────
   if (embeddedImages.length > 0) {
-    // Add first page image with reduced size
-    const firstImg = embeddedImages[0];
-    const imgScale = 0.6;
-    const imgWidth = (UW) * imgScale;
-    const imgHeight = (firstImg.height / firstImg.width) * imgWidth;
-    
-    if (y + imgHeight + GAP > PH - MARGIN) newPage();
-    
-    try {
-      page.drawImage(firstImg.image, {
-        x: MARGIN,
-        y: PH - y - imgHeight,
-        width: imgWidth,
-        height: imgHeight,
-      });
-      y += imgHeight + GAP;
-    } catch (e) {
-      console.log(`Erro ao desenhar imagem no PDF: ${e.message}`);
+    // Draw all extracted images from the original PDF
+    for (const imgData of embeddedImages) {
+      try {
+        // Scale image to fit in usable width
+        const maxImgWidth = UW * 0.85;
+        const scale = Math.min(1, maxImgWidth / imgData.width);
+        const imgWidth = imgData.width * scale;
+        const imgHeight = imgData.height * scale;
+        
+        // Check if image fits on current page, otherwise create new page
+        if (y + imgHeight + GAP > PH - MARGIN) {
+          newPage();
+        }
+        
+        // Draw image from original PDF position
+        page.drawImage(imgData.image, {
+          x: MARGIN,
+          y: PH - y - imgHeight,
+          width: imgWidth,
+          height: imgHeight,
+        });
+        
+        console.log(`[normalizar-lista] Imagem de página ${imgData.pageNum + 1} desenhada no PDF (${imgWidth.toFixed(0)}x${imgHeight.toFixed(0)}px)`);
+        y += imgHeight + GAP;
+      } catch (e) {
+        console.log(`Erro ao desenhar imagem: ${e.message}`);
+      }
     }
   }
 
