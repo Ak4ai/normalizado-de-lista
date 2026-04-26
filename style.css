@@ -158,6 +158,16 @@ main {
 #title-wrap { margin-top: 8px; }
 #pdf-title  { font-family: inherit; }
 
+.info-text { 
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #f0f9ff;
+  border-radius: 4px;
+  border-left: 3px solid var(--accent);
+}
+
 /* ── Style picker (grid / lined / blank) ──────────────── */
 .style-picker {
   display: flex;
