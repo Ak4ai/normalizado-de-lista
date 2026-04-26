@@ -95,6 +95,38 @@ def find_questions_start(text: str) -> int:
     return 0
 
 
+def extract_images_from_pdf(pdf_path: Path) -> dict:
+    """Extract all images from PDF pages with their metadata.
+    
+    Returns dict mapping page_num -> list of (image_data, rect) tuples.
+    """
+    images_by_page = {}
+    with fitz.open(pdf_path) as pdf_doc:
+        for page_num, page in enumerate(pdf_doc):
+            image_list = page.get_images(full=True)
+            if image_list:
+                page_images = []
+                for img_index, img in enumerate(image_list):
+                    try:
+                        xref = img[0]
+                        pix = fitz.Pixmap(pdf_doc, xref)
+                        # Convert to PNG bytes if needed
+                        if pix.n - pix.alpha < 4:
+                            pix = fitz.Pixmap(fitz.csRGB, pix)
+                        img_bytes = pix.tobytes("png")
+                        pix = None
+                        # Get image rect on page
+                        rect_list = page.get_image_rects(img)
+                        if rect_list:
+                            rect = rect_list[0]
+                            page_images.append((img_bytes, rect))
+                    except Exception:
+                        pass
+                if page_images:
+                    images_by_page[page_num] = page_images
+    return images_by_page
+
+
 def detect_block_style(text: str):
     """Return (start_regex, should_strip_solutions) based on PDF content."""
     solution_hits = len(_SOLUTION_LIST_PATTERNS.findall(text))
@@ -257,6 +289,98 @@ def _draw_grid(
         v += cell_size
 
 
+def write_blocks_to_pdf_with_images(
+    blocks: Sequence[str], 
+    output_path: Path, 
+    answer_space_lines: int,
+    source_pdf_path: Path,
+) -> None:
+    """Write exercises to PDF preserving images from source, with blank answer space after each item."""
+    source_doc = fitz.open(source_pdf_path)
+    output_doc = fitz.open()
+    
+    page_width = 595  # A4 portrait
+    page_height = 842
+    margin = 48
+    title_size = 15
+    text_size = 11
+    text_line_height = 16
+    answer_cell_size = 16
+    section_gap = 14
+    label_h = 16
+
+    usable_height = page_height - 2 * margin
+    text_width = page_width - (2 * margin)
+    effective_answer_lines = answer_space_lines * 2
+    grid_height = effective_answer_lines * answer_cell_size
+    grid_block_h = label_h + grid_height
+
+    # Add title page
+    page = output_doc.new_page(width=page_width, height=page_height)
+    y = margin
+    title = "Lista com espaco para resolucao"
+    page.insert_text(
+        fitz.Point(margin, y + title_size),
+        title, fontname="helv", fontsize=title_size,
+    )
+    y += title_size + 12
+
+    # Copy pages from source PDF that have content
+    source_page_idx = 0
+    source_blocks = {}  # Map source page index -> list of block indices
+    
+    # Build a map of which blocks appear on which source pages
+    raw_text = ""
+    for src_page_num in range(len(source_doc)):
+        src_page = source_doc[src_page_num]
+        raw_text += src_page.get_text("text")
+    
+    # For each block, find which source page it likely came from
+    for block_idx, block in enumerate(blocks):
+        # Find which source page contains this block text (simplified approach)
+        search_text = block[:100]  # Search first 100 chars
+        for src_page_num in range(len(source_doc)):
+            src_page = source_doc[src_page_num]
+            page_text = src_page.get_text("text")
+            if search_text in page_text:
+                if src_page_num not in source_blocks:
+                    source_blocks[src_page_num] = []
+                source_blocks[src_page_num].append(block_idx)
+                break
+
+    # Copy source pages and add answer spaces
+    copied_pages = set()
+    for src_page_num in sorted(source_blocks.keys()):
+        if src_page_num not in copied_pages:
+            # Copy the source page
+            src_page = source_doc[src_page_num]
+            new_page = output_doc.new_page(width=page_width, height=page_height)
+            new_page.show_pdf_page(
+                new_page.rect,
+                source_doc,
+                src_page_num,
+                keep_proportion=True,
+                overlay=False,
+            )
+            copied_pages.add(src_page_num)
+            
+            # Add answer space for this page
+            y = page_height - margin - grid_block_h
+            if y > margin:
+                new_page.insert_text(
+                    fitz.Point(margin, y + 10),
+                    "Espaco para resolucao:",
+                    fontname="helv", fontsize=10,
+                )
+                y += label_h
+                _draw_grid(new_page, y, grid_height, margin, page_width - margin, answer_cell_size)
+
+    source_doc.close()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_doc.save(output_path)
+    output_doc.close()
+
+
 def write_blocks_to_pdf(blocks: Sequence[str], output_path: Path, answer_space_lines: int) -> None:
     """Write exercises to PDF and insert blank answer space after each item."""
     doc = fitz.open()
@@ -417,6 +541,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_BLOCK_START_REGEX,
         help="Regex para detectar o inicio de cada exercicio.",
     )
+    parser.add_argument(
+        "--preserve-images",
+        action="store_true",
+        help="Preservar imagens do PDF original no arquivo de saida.",
+    )
     return parser
 
 
@@ -473,11 +602,18 @@ def main() -> None:
     if not cleaned_blocks:
         parser.error("Nenhum bloco de exercicio foi encontrado no texto extraido.")
 
-    write_blocks_to_pdf(cleaned_blocks, output_pdf, args.answer_space_lines)
+    # Choose PDF generation method based on preserve-images flag
+    if args.preserve_images:
+        write_blocks_to_pdf_with_images(cleaned_blocks, output_pdf, args.answer_space_lines, input_pdf)
+    else:
+        write_blocks_to_pdf(cleaned_blocks, output_pdf, args.answer_space_lines)
+    
     print(f"\nConcluido! Arquivo gerado: {output_pdf.resolve()}")
     print(f"Padrão usado       : {pattern_source}")
     print(f"Blocos detectados  : {len(blocks)}")
     print(f"Blocos apos limpeza: {len(cleaned_blocks)}")
+    if args.preserve_images:
+        print(f"Modo               : Com imagens preservadas")
 
 
 if __name__ == "__main__":
